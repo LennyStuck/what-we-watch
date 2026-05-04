@@ -1,4 +1,4 @@
-const { cleanTitle, cleanRussianTitle, isCyrillic } = require('../shared/cleanTitle');
+const { cleanTitleCandidates, cleanRussianTitleCandidates, isCyrillic } = require('../shared/cleanTitle');
 
 const OMDB_KEY = process.env.OMDB_API_KEY;
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -29,33 +29,48 @@ async function getTMDBDetails(id) {
   return await res.json();
 }
 
-async function searchTMDB(query, year) {
-  let url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
-  if (year) url += `&year=${year}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.results && data.results.length > 0) {
-    return await getTMDBDetails(data.results[0].id);
+// Try each candidate until TMDB returns a result
+async function searchTMDBCandidates(candidates, year) {
+  for (const query of candidates) {
+    let url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
+    if (year) url += `&year=${year}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      return await getTMDBDetails(data.results[0].id);
+    }
+    // Also try without year if year was specified
+    if (year) {
+      const res2 = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=en-US`);
+      const data2 = await res2.json();
+      if (data2.results && data2.results.length > 0) {
+        return await getTMDBDetails(data2.results[0].id);
+      }
+    }
   }
   return null;
 }
 
-// Fetch OMDb by imdbID (most precise) or by title without year
 async function fetchOMDbByImdbId(imdbId) {
   const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`);
   return await res.json();
 }
 
-async function fetchFromOMDb(movieTitle, year) {
-  let url = `https://www.omdbapi.com/?t=${encodeURIComponent(movieTitle)}&apikey=${OMDB_KEY}`;
-  if (year) url += `&y=${year}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.Response === 'False' && year) {
-    const res2 = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(movieTitle)}&apikey=${OMDB_KEY}`);
-    return await res2.json();
+async function fetchFromOMDbCandidates(candidates, year) {
+  for (const query of candidates) {
+    let url = `https://www.omdbapi.com/?t=${encodeURIComponent(query)}&apikey=${OMDB_KEY}`;
+    if (year) url += `&y=${year}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.Response === 'True') return data;
+    // Try without year
+    if (year) {
+      const res2 = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(query)}&apikey=${OMDB_KEY}`);
+      const data2 = await res2.json();
+      if (data2.Response === 'True') return data2;
+    }
   }
-  return data;
+  return { Response: 'False' };
 }
 
 function movieFromTMDB(t) {
@@ -76,7 +91,6 @@ function movieFromTMDB(t) {
 
 export default async function handler(req, res) {
   setCORS(res);
-
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
@@ -87,12 +101,10 @@ export default async function handler(req, res) {
   let movie = { Response: 'False' };
 
   if (isCyrillic(title)) {
-    // Russian: TMDB primary (precise with year), then enrich via imdbID
-    const ruClean = cleanRussianTitle(title);
-    const tmdbMovie = await searchTMDB(ruClean, year);
+    const candidates = cleanRussianTitleCandidates(title);
+    const tmdbMovie = await searchTMDBCandidates(candidates, year);
     if (tmdbMovie) {
       movie = movieFromTMDB(tmdbMovie);
-      // Enrich with OMDb using imdbID for exact match
       if (movie._imdbId) {
         const omdb = await fetchOMDbByImdbId(movie._imdbId);
         if (omdb.Response === 'True') {
@@ -103,13 +115,14 @@ export default async function handler(req, res) {
       }
     }
   } else {
-    // English: OMDb first, fallback to TMDB
-    const enClean = cleanTitle(title);
-    const omdb = await fetchFromOMDb(enClean, year);
+    const candidates = cleanTitleCandidates(title);
+    // Try OMDb first with all candidates
+    const omdb = await fetchFromOMDbCandidates(candidates, year);
     if (omdb.Response === 'True') {
       movie = omdb;
     } else {
-      const tmdbMovie = await searchTMDB(enClean, year);
+      // Fallback: TMDB with all candidates
+      const tmdbMovie = await searchTMDBCandidates(candidates, year);
       if (tmdbMovie) {
         movie = movieFromTMDB(tmdbMovie);
         if (movie._imdbId) {
