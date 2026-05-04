@@ -7,17 +7,22 @@ function isCyrillic(str) {
 
 /**
  * Cleans an English YouTube title to extract a movie name.
+ * Strategy: take only the part before the first | or — separator,
+ * then strip noise words.
  */
 function cleanTitle(raw) {
-  return raw
+  // Take only the part before first pipe or em-dash — distributor/channel always comes after
+  let title = raw.split(/[|\u2014\u2013]/)[0];
+
+  return title
     .replace(/\(.*?\)/g, '')
     .replace(/\[.*?\]/g, '')
     .replace(/official\s*(trailer|teaser|clip|video)/gi, '')
     .replace(/\b(trailer|teaser|clip|featurette|sneak\s*peek)\b/gi, '')
-    .replace(/\b(youtube|a24|marvel|disney|netflix|hbo|amazon|apple\s*tv|paramount|sony|universal|lionsgate|warner\s*bros?|20th\s*century\s*(studios?|fox))\b/gi, '')
+    .replace(/\b(youtube|a24|marvel|disney|netflix|hbo|amazon|apple\s*tv|paramount|sony|universal|lionsgate|warner\s*bros?|20th\s*century\s*(studios?|fox)|utopia|neon|mubi)\b/gi, '')
     .replace(/\d{4}/g, '')
     .replace(/\b(4k|hd|uhd|subtitles?|sub|dubbed|dub|ru|eng)\b/gi, '')
-    .replace(/[-|\u2013\u2014:]/g, ' ')
+    .replace(/[-:]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -27,13 +32,9 @@ function cleanTitle(raw) {
  * since Russian titles are usually: "Название — Русский трейлер (год)"
  */
 function cleanRussianTitle(raw) {
-  // Split on common separators: —, –, |, :
   const parts = raw.split(/[\u2013\u2014|]/);
-  // Take first part — that's the movie name
   let title = parts[0];
-  // Remove year in parentheses
   title = title.replace(/\(.*?\)/g, '');
-  // Remove trailing noise words
   title = title.replace(/\b(трейлер|тизер|клип|официальный|русский|дублированный|субтитры)\b/gi, '');
   return title.replace(/\s{2,}/g, ' ').trim();
 }
