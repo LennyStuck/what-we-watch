@@ -7,30 +7,46 @@ function isCyrillic(str) {
 
 /**
  * Detects if string contains BOTH Cyrillic and Latin characters.
- * Example: "Преступления будущего - Crimes of the Future (2022)"
  */
 function isBilingual(str) {
   return /[\u0400-\u04FF]/.test(str) && /[a-zA-Z]{3,}/.test(str);
 }
 
 /**
- * For bilingual titles: extract the Latin (English) portion.
- * Splits on dash/pipe separators and picks the segment without Cyrillic.
- * Returns null if no clean Latin segment found.
+ * Try to extract English title from quotes/guillemets.
+ * Handles: «The Beauty», "The Beauty", ‘The Beauty’, “The Beauty”
+ * Returns null if not found or result contains Cyrillic.
+ */
+function extractQuotedTitle(raw) {
+  const patterns = [
+    /«([^\u00bb]+)\u00bb/,           // «text»
+    /“([^\u201d]+)\u201d/,           // “text”
+    /‘([^\u2019]+)\u2019/,           // ‘text’
+    /"([^"]+)"/,                    // "text"
+  ];
+  for (const re of patterns) {
+    const m = raw.match(re);
+    if (m) {
+      const inner = m[1].trim();
+      // Only return if Latin (no Cyrillic)
+      if (!/[\u0400-\u04FF]/.test(inner) && /[a-zA-Z]{2,}/.test(inner)) {
+        return inner;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * For bilingual titles: extract the Latin (English) portion by splitting on separators.
  */
 function extractEnglishFromBilingual(raw) {
-  // Split on common separators
-  const parts = raw.split(/[-\u2013\u2014|]/);
+  const parts = raw.split(/[-\u2013\u2014|,]/);
   for (const part of parts) {
     const trimmed = part.trim();
-    // Skip if contains Cyrillic
     if (/[\u0400-\u04FF]/.test(trimmed)) continue;
-    // Skip noise-only segments
-    if (/^[\s\d\(\)\[\]]+$/.test(trimmed)) continue;
-    // Must have at least 3 Latin letters
-    if (/[a-zA-Z]{3,}/.test(trimmed)) {
-      return trimmed;
-    }
+    if (/^[\s\d\(\)\[\]«»"']+$/.test(trimmed)) continue;
+    if (/[a-zA-Z]{3,}/.test(trimmed)) return trimmed;
   }
   return null;
 }
@@ -43,7 +59,7 @@ function stripNoise(s) {
     .replace(/\(.*?\)/g, '')
     .replace(/\[.*?\]/g, '')
     .replace(/official\s*(trailer|teaser|clip|video)/gi, '')
-    .replace(/\b(trailer|teaser|clip|featurette|sneak\s*peek|exclusive|extended|final|red band|green band|international)\b/gi, '')
+    .replace(/\b(trailer|teaser|clip|featurette|sneak\s*peek|exclusive|extended|final|red band|green band|international|season|episode|series|mini.?series)\b/gi, '')
     .replace(/\b(youtube|a24|marvel|disney|netflix|hbo|amazon|apple\s*tv|paramount|sony|universal|lionsgate|warner\s*bros?|20th\s*century\s*(studios?|fox)|utopia|neon|mubi|searchlight|focus\s*features|altitude)\b/gi, '')
     .replace(/\d{4}/g, '')
     .replace(/\b(4k|hd|uhd|subtitles?|sub|dubbed|dub|ru|eng)\b/gi, '')
@@ -57,34 +73,25 @@ function stripNoise(s) {
 function cleanTitleCandidates(raw) {
   const candidates = [];
 
+  const add = (c) => { if (c && c.length > 1 && !candidates.includes(c)) candidates.push(c); };
+
   // Strategy 1: pipe separator
   const pipeParts = raw.split('|');
-  if (pipeParts.length > 1) {
-    const c = stripNoise(pipeParts[0]);
-    if (c.length > 1) candidates.push(c);
-  }
+  if (pipeParts.length > 1) add(stripNoise(pipeParts[0]));
 
   // Strategy 2: em/en-dash separator
   const dashParts = raw.split(/[\u2013\u2014]/);
-  if (dashParts.length > 1) {
-    const c = stripNoise(dashParts[0]);
-    if (c.length > 1 && !candidates.includes(c)) candidates.push(c);
-  }
+  if (dashParts.length > 1) add(stripNoise(dashParts[0]));
 
   // Strategy 3: colon separator
   const colonParts = raw.split(':');
-  if (colonParts.length > 1) {
-    const c = stripNoise(colonParts[0]);
-    if (c.length > 1 && !candidates.includes(c)) candidates.push(c);
-  }
+  if (colonParts.length > 1) add(stripNoise(colonParts[0]));
 
-  // Strategy 4: full string, hyphens replaced with spaces
-  const full = stripNoise(raw.replace(/[-|:\u2013\u2014]/g, ' '));
-  if (full.length > 1 && !candidates.includes(full)) candidates.push(full);
+  // Strategy 4: full string, replace separators with spaces
+  add(stripNoise(raw.replace(/[-|:\u2013\u2014]/g, ' ')));
 
-  // Strategy 5: full string, keep hyphens (Spider-Man etc)
-  const fullHyphen = stripNoise(raw.replace(/[|:\u2013\u2014]/g, ' '));
-  if (fullHyphen.length > 1 && !candidates.includes(fullHyphen)) candidates.push(fullHyphen);
+  // Strategy 5: full string, keep hyphens
+  add(stripNoise(raw.replace(/[|:\u2013\u2014]/g, ' ')));
 
   return candidates;
 }
@@ -95,34 +102,39 @@ function cleanTitle(raw) {
 
 /**
  * Returns candidates for Russian/bilingual titles.
- * If bilingual: English part goes FIRST as highest priority candidate.
+ * Priority order:
+ *   1. Quoted English title («The Beauty») <- new
+ *   2. English part split by separators (bilingual)
+ *   3. Russian part before separator
+ *   4. Full string
  */
 function cleanRussianTitleCandidates(raw) {
   const candidates = [];
+  const add = (c) => { if (c && c.length > 1 && !candidates.includes(c)) candidates.push(c); };
 
   const noiseRu = (s) => s
     .replace(/\(.*?\)/g, '')
-    .replace(/\b(трейлер|тизер|клип|официальный|русский|дублированный|дубляж|субтитры)\b/gi, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\b(трейлер|тизер|клип|официальный|русский|дублированный|дубляж|субтитры|сериал|сезон|эпизод)\b/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 
-  // Priority 0: if bilingual, extract English part first
+  // Priority 1: English title in quotes/guillemets
+  const quoted = extractQuotedTitle(raw);
+  if (quoted) add(stripNoise(quoted));
+
+  // Priority 2: bilingual — extract Latin segment
   if (isBilingual(raw)) {
     const enPart = extractEnglishFromBilingual(raw);
-    if (enPart) {
-      const c = stripNoise(enPart);
-      if (c.length > 1) candidates.push(c);
-    }
+    if (enPart) add(stripNoise(enPart));
   }
 
-  // Strategy 1: before first em/en-dash or pipe (Russian part)
+  // Priority 3: Russian part before separator
   const parts = raw.split(/[\u2013\u2014|]/);
-  const c1 = noiseRu(parts[0]);
-  if (c1.length > 1 && !candidates.includes(c1)) candidates.push(c1);
+  add(noiseRu(parts[0]));
 
-  // Strategy 2: full string stripped
-  const full = noiseRu(raw.replace(/[\u2013\u2014|]/g, ' '));
-  if (full.length > 1 && !candidates.includes(full)) candidates.push(full);
+  // Priority 4: full string
+  add(noiseRu(raw.replace(/[\u2013\u2014|]/g, ' ')));
 
   return candidates;
 }
