@@ -6,6 +6,36 @@ function isCyrillic(str) {
 }
 
 /**
+ * Detects if string contains BOTH Cyrillic and Latin characters.
+ * Example: "Преступления будущего - Crimes of the Future (2022)"
+ */
+function isBilingual(str) {
+  return /[\u0400-\u04FF]/.test(str) && /[a-zA-Z]{3,}/.test(str);
+}
+
+/**
+ * For bilingual titles: extract the Latin (English) portion.
+ * Splits on dash/pipe separators and picks the segment without Cyrillic.
+ * Returns null if no clean Latin segment found.
+ */
+function extractEnglishFromBilingual(raw) {
+  // Split on common separators
+  const parts = raw.split(/[-\u2013\u2014|]/);
+  for (const part of parts) {
+    const trimmed = part.trim();
+    // Skip if contains Cyrillic
+    if (/[\u0400-\u04FF]/.test(trimmed)) continue;
+    // Skip noise-only segments
+    if (/^[\s\d\(\)\[\]]+$/.test(trimmed)) continue;
+    // Must have at least 3 Latin letters
+    if (/[a-zA-Z]{3,}/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+/**
  * Strip noise words from a candidate string.
  */
 function stripNoise(s) {
@@ -23,54 +53,49 @@ function stripNoise(s) {
 
 /**
  * Returns an ordered array of title candidates for English titles.
- * Tries progressively more inclusive strategies.
- * The caller should try each candidate until a match is found.
  */
 function cleanTitleCandidates(raw) {
   const candidates = [];
 
-  // Strategy 1: take segment before first pipe (distributor separator)
+  // Strategy 1: pipe separator
   const pipeParts = raw.split('|');
   if (pipeParts.length > 1) {
     const c = stripNoise(pipeParts[0]);
     if (c.length > 1) candidates.push(c);
   }
 
-  // Strategy 2: take segment before first em-dash or en-dash
+  // Strategy 2: em/en-dash separator
   const dashParts = raw.split(/[\u2013\u2014]/);
   if (dashParts.length > 1) {
     const c = stripNoise(dashParts[0]);
     if (c.length > 1 && !candidates.includes(c)) candidates.push(c);
   }
 
-  // Strategy 3: take segment before first colon (e.g. "Movie: Subtitle")
+  // Strategy 3: colon separator
   const colonParts = raw.split(':');
   if (colonParts.length > 1) {
     const c = stripNoise(colonParts[0]);
     if (c.length > 1 && !candidates.includes(c)) candidates.push(c);
   }
 
-  // Strategy 4: full string stripped of noise (replace hyphens with space)
+  // Strategy 4: full string, hyphens replaced with spaces
   const full = stripNoise(raw.replace(/[-|:\u2013\u2014]/g, ' '));
   if (full.length > 1 && !candidates.includes(full)) candidates.push(full);
 
-  // Strategy 5: full string stripped, keep hyphens (for hyphenated titles like "Spider-Man")
+  // Strategy 5: full string, keep hyphens (Spider-Man etc)
   const fullHyphen = stripNoise(raw.replace(/[|:\u2013\u2014]/g, ' '));
   if (fullHyphen.length > 1 && !candidates.includes(fullHyphen)) candidates.push(fullHyphen);
 
   return candidates;
 }
 
-/**
- * Legacy single-value wrapper (used as fallback).
- */
 function cleanTitle(raw) {
   return cleanTitleCandidates(raw)[0] || raw.trim();
 }
 
 /**
- * Cleans a Russian YouTube title — strips everything after dash/separator.
- * Returns array of candidates like cleanTitleCandidates.
+ * Returns candidates for Russian/bilingual titles.
+ * If bilingual: English part goes FIRST as highest priority candidate.
  */
 function cleanRussianTitleCandidates(raw) {
   const candidates = [];
@@ -81,10 +106,19 @@ function cleanRussianTitleCandidates(raw) {
     .replace(/\s{2,}/g, ' ')
     .trim();
 
-  // Strategy 1: before first em/en-dash or pipe
+  // Priority 0: if bilingual, extract English part first
+  if (isBilingual(raw)) {
+    const enPart = extractEnglishFromBilingual(raw);
+    if (enPart) {
+      const c = stripNoise(enPart);
+      if (c.length > 1) candidates.push(c);
+    }
+  }
+
+  // Strategy 1: before first em/en-dash or pipe (Russian part)
   const parts = raw.split(/[\u2013\u2014|]/);
   const c1 = noiseRu(parts[0]);
-  if (c1.length > 1) candidates.push(c1);
+  if (c1.length > 1 && !candidates.includes(c1)) candidates.push(c1);
 
   // Strategy 2: full string stripped
   const full = noiseRu(raw.replace(/[\u2013\u2014|]/g, ' '));
@@ -97,4 +131,4 @@ function cleanRussianTitle(raw) {
   return cleanRussianTitleCandidates(raw)[0] || raw.trim();
 }
 
-module.exports = { cleanTitle, cleanTitleCandidates, cleanRussianTitle, cleanRussianTitleCandidates, isCyrillic };
+module.exports = { cleanTitle, cleanTitleCandidates, cleanRussianTitle, cleanRussianTitleCandidates, isCyrillic, isBilingual };
