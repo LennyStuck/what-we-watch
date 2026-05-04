@@ -20,7 +20,6 @@ function genresToHashtags(genreStr) {
     .join(' ');
 }
 
-// Extract 4-digit year (1900-2099) from raw YouTube title
 function extractYear(raw) {
   const match = raw.match(/\b(19|20)\d{2}\b/);
   return match ? match[0] : null;
@@ -42,7 +41,6 @@ async function fetchFromOMDb(movieTitle, year) {
   if (year) url += `&y=${year}`;
   const res = await fetch(url);
   const data = await res.json();
-  // If not found with year, retry without year
   if (data.Response === 'False' && year) {
     const res2 = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(movieTitle)}&apikey=${OMDB_KEY}`);
     return await res2.json();
@@ -99,20 +97,39 @@ export default async function handler(req, res) {
     watchLinks
   ].filter(Boolean).join('\n');
 
-  const tgBody = {
-    chat_id: TG_CHAT_ID,
-    photo: movie.Poster,
-    caption,
-    parse_mode: 'HTML',
-    reply_markup: {
-      inline_keyboard: [[
-        { text: '👁 Посмотрели', callback_data: 'watched' }
-      ]]
-    },
-    ...(TG_THREAD_ID && { message_thread_id: Number(TG_THREAD_ID) })
+  const replyMarkup = {
+    inline_keyboard: [[
+      { text: '👁 Посмотрели', callback_data: 'watched' }
+    ]]
   };
 
-  const tgRes = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendPhoto`, {
+  const hasValidPoster = movie.Poster && movie.Poster !== 'N/A' && movie.Poster.startsWith('http');
+
+  let tgMethod, tgBody;
+
+  if (hasValidPoster) {
+    tgMethod = 'sendPhoto';
+    tgBody = {
+      chat_id: TG_CHAT_ID,
+      photo: movie.Poster,
+      caption,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+      ...(TG_THREAD_ID && { message_thread_id: Number(TG_THREAD_ID) })
+    };
+  } else {
+    // No poster — fallback to text message
+    tgMethod = 'sendMessage';
+    tgBody = {
+      chat_id: TG_CHAT_ID,
+      text: caption,
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+      ...(TG_THREAD_ID && { message_thread_id: Number(TG_THREAD_ID) })
+    };
+  }
+
+  const tgRes = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/${tgMethod}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(tgBody)
