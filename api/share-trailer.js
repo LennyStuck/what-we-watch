@@ -75,7 +75,7 @@ export default async function handler(req, res) {
 
   const caption = [
     `<b>${movie.Title}</b> (${movie.Year})`,
-    hashtags,
+    hashtags + ' #не_смотрели',
     [imdb, rtText].filter(Boolean).join('  '),
     watchLinks
   ].filter(Boolean).join('\n');
@@ -85,6 +85,11 @@ export default async function handler(req, res) {
     photo: movie.Poster,
     caption,
     parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[
+        { text: '👁 Посмотрели', callback_data: 'watched' }
+      ]]
+    },
     ...(TG_THREAD_ID && { message_thread_id: Number(TG_THREAD_ID) })
   };
 
