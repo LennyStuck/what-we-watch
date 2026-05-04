@@ -20,14 +20,34 @@ function genresToHashtags(genreStr) {
     .join(' ');
 }
 
-async function findOnTMDB(query) {
-  const url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=ru-RU`;
+// Extract 4-digit year (1900-2099) from raw YouTube title
+function extractYear(raw) {
+  const match = raw.match(/\b(19|20)\d{2}\b/);
+  return match ? match[0] : null;
+}
+
+async function findOnTMDB(query, year) {
+  let url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=ru-RU`;
+  if (year) url += `&year=${year}`;
   const res = await fetch(url);
   const data = await res.json();
   if (data.results && data.results.length > 0) {
     return data.results[0].original_title;
   }
   return null;
+}
+
+async function fetchFromOMDb(movieTitle, year) {
+  let url = `https://www.omdbapi.com/?t=${encodeURIComponent(movieTitle)}&apikey=${OMDB_KEY}`;
+  if (year) url += `&y=${year}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  // If not found with year, retry without year
+  if (data.Response === 'False' && year) {
+    const res2 = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(movieTitle)}&apikey=${OMDB_KEY}`);
+    return await res2.json();
+  }
+  return data;
 }
 
 export default async function handler(req, res) {
@@ -39,33 +59,23 @@ export default async function handler(req, res) {
   const { title } = req.body;
   if (!title) return res.status(400).json({ ok: false, error: 'No title' });
 
+  const year = extractYear(title);
   let movie = { Response: 'False' };
 
   if (isCyrillic(title)) {
-    // Russian title: clean then go straight to TMDB for original_title
     const ruClean = cleanRussianTitle(title);
-    const originalTitle = await findOnTMDB(ruClean);
+    const originalTitle = await findOnTMDB(ruClean, year);
     if (originalTitle) {
-      const omdbRes = await fetch(
-        `https://www.omdbapi.com/?t=${encodeURIComponent(originalTitle)}&apikey=${OMDB_KEY}`
-      );
-      movie = await omdbRes.json();
+      movie = await fetchFromOMDb(originalTitle, year);
     }
   } else {
-    // English title: try OMDb directly, fallback to TMDB
     const enClean = cleanTitle(title);
-    let omdbRes = await fetch(
-      `https://www.omdbapi.com/?t=${encodeURIComponent(enClean)}&apikey=${OMDB_KEY}`
-    );
-    movie = await omdbRes.json();
+    movie = await fetchFromOMDb(enClean, year);
 
     if (movie.Response === 'False' && TMDB_KEY) {
-      const originalTitle = await findOnTMDB(enClean);
+      const originalTitle = await findOnTMDB(enClean, year);
       if (originalTitle) {
-        omdbRes = await fetch(
-          `https://www.omdbapi.com/?t=${encodeURIComponent(originalTitle)}&apikey=${OMDB_KEY}`
-        );
-        movie = await omdbRes.json();
+        movie = await fetchFromOMDb(originalTitle, year);
       }
     }
   }
