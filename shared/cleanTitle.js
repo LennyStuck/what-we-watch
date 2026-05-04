@@ -1,5 +1,12 @@
 /**
- * Cleans a YouTube video title to extract a movie name.
+ * Detects if string contains Cyrillic characters.
+ */
+function isCyrillic(str) {
+  return /[\u0400-\u04FF]/.test(str);
+}
+
+/**
+ * Cleans an English YouTube title to extract a movie name.
  */
 function cleanTitle(raw) {
   return raw
@@ -15,4 +22,20 @@ function cleanTitle(raw) {
     .trim();
 }
 
-module.exports = { cleanTitle };
+/**
+ * Cleans a Russian YouTube title — strips everything after dash/separator
+ * since Russian titles are usually: "Название — Русский трейлер (год)"
+ */
+function cleanRussianTitle(raw) {
+  // Split on common separators: —, –, |, :
+  const parts = raw.split(/[\u2013\u2014|]/);
+  // Take first part — that's the movie name
+  let title = parts[0];
+  // Remove year in parentheses
+  title = title.replace(/\(.*?\)/g, '');
+  // Remove trailing noise words
+  title = title.replace(/\b(трейлер|тизер|клип|официальный|русский|дублированный|субтитры)\b/gi, '');
+  return title.replace(/\s{2,}/g, ' ').trim();
+}
+
+module.exports = { cleanTitle, cleanRussianTitle, isCyrillic };

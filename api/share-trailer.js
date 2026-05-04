@@ -1,4 +1,4 @@
-const { cleanTitle } = require('../shared/cleanTitle');
+const { cleanTitle, cleanRussianTitle, isCyrillic } = require('../shared/cleanTitle');
 
 const OMDB_KEY = process.env.OMDB_API_KEY;
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -20,7 +20,7 @@ function genresToHashtags(genreStr) {
     .join(' ');
 }
 
-async function findMovieOnTMDB(query) {
+async function findOnTMDB(query) {
   const url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=ru-RU`;
   const res = await fetch(url);
   const data = await res.json();
@@ -33,36 +33,45 @@ async function findMovieOnTMDB(query) {
 export default async function handler(req, res) {
   setCORS(res);
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
   const { title } = req.body;
   if (!title) return res.status(400).json({ ok: false, error: 'No title' });
 
-  let movieName = cleanTitle(title);
+  let movie = { Response: 'False' };
 
-  let omdbRes = await fetch(
-    `https://www.omdbapi.com/?t=${encodeURIComponent(movieName)}&apikey=${OMDB_KEY}`
-  );
-  let movie = await omdbRes.json();
-
-  if (movie.Response === 'False' && TMDB_KEY) {
-    const originalTitle = await findMovieOnTMDB(movieName);
+  if (isCyrillic(title)) {
+    // Russian title: clean then go straight to TMDB for original_title
+    const ruClean = cleanRussianTitle(title);
+    const originalTitle = await findOnTMDB(ruClean);
     if (originalTitle) {
-      omdbRes = await fetch(
+      const omdbRes = await fetch(
         `https://www.omdbapi.com/?t=${encodeURIComponent(originalTitle)}&apikey=${OMDB_KEY}`
       );
       movie = await omdbRes.json();
     }
+  } else {
+    // English title: try OMDb directly, fallback to TMDB
+    const enClean = cleanTitle(title);
+    let omdbRes = await fetch(
+      `https://www.omdbapi.com/?t=${encodeURIComponent(enClean)}&apikey=${OMDB_KEY}`
+    );
+    movie = await omdbRes.json();
+
+    if (movie.Response === 'False' && TMDB_KEY) {
+      const originalTitle = await findOnTMDB(enClean);
+      if (originalTitle) {
+        omdbRes = await fetch(
+          `https://www.omdbapi.com/?t=${encodeURIComponent(originalTitle)}&apikey=${OMDB_KEY}`
+        );
+        movie = await omdbRes.json();
+      }
+    }
   }
 
   if (movie.Response === 'False') {
-    return res.status(404).json({ ok: false, error: 'Movie not found: ' + movieName });
+    return res.status(404).json({ ok: false, error: 'Movie not found: ' + title });
   }
 
   const imdb = movie.imdbRating !== 'N/A' ? `⭐ IMDb: ${movie.imdbRating}` : '';
