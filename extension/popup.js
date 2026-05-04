@@ -1,31 +1,110 @@
-const BACKEND_URL = 'https://what-we-watch-six.vercel.app/api/share-trailer';
+const BACKEND = 'https://what-we-watch-six.vercel.app';
 
-document.getElementById('sendBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('sendBtn');
-  const status = document.getElementById('status');
+const screenMain = document.getElementById('screen-main');
+const screenEdit = document.getElementById('screen-edit');
+const sendBtn    = document.getElementById('sendBtn');
+const mainStatus = document.getElementById('main-status');
+const titleInput = document.getElementById('titleInput');
+const yearInput  = document.getElementById('yearInput');
+const backBtn    = document.getElementById('backBtn');
+const retryBtn   = document.getElementById('retryBtn');
+const editStatus = document.getElementById('edit-status');
 
-  btn.disabled = true;
-  status.textContent = 'Sending...';
+let currentTab = null;
+
+// Grab current tab on open
+chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+  currentTab = tab;
+});
+
+// ---- FAST SEND (Screen 1) ----
+sendBtn.addEventListener('click', async () => {
+  sendBtn.disabled = true;
+  mainStatus.innerHTML = '🔍 Searching...';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentTab = tab;
 
   try {
-    const res = await fetch(BACKEND_URL, {
+    // Step 1: preview (find movie)
+    const previewRes = await fetch(BACKEND + '/api/preview-trailer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: tab.title, url: tab.url })
     });
+    const preview = await previewRes.json();
 
-    const data = await res.json();
+    if (!preview.ok) {
+      // Not found — switch to edit screen
+      titleInput.value = preview.suggestedTitle || '';
+      yearInput.value  = preview.suggestedYear  || '';
+      showScreen('edit');
+      return;
+    }
 
-    if (data.ok) {
-      status.textContent = '✅ Sent!';
+    // Step 2: send immediately
+    mainStatus.innerHTML = '📤 Sending...';
+    const movie = preview.movie;
+    const sent = await sendToTelegram(movie);
+
+    if (sent.ok) {
+      mainStatus.innerHTML = '<span class="status-ok">✅ Sent!</span>';
     } else {
-      status.textContent = '❌ Error: ' + (data.error || 'Unknown');
+      mainStatus.innerHTML = '<span class="status-err">❌ ' + (sent.error || 'Error') + '</span>';
+      sendBtn.disabled = false;
     }
   } catch (e) {
-    status.textContent = '❌ Network error';
+    mainStatus.innerHTML = '<span class="status-err">❌ Network error</span>';
+    sendBtn.disabled = false;
   }
-
-  btn.disabled = false;
 });
+
+// ---- BACK ----
+backBtn.addEventListener('click', () => {
+  sendBtn.disabled = false;
+  mainStatus.innerHTML = '';
+  editStatus.innerHTML = '';
+  showScreen('main');
+});
+
+// ---- SEND ANYWAY (Screen 2) ----
+retryBtn.addEventListener('click', async () => {
+  retryBtn.disabled = true;
+  editStatus.innerHTML = '📤 Sending...';
+
+  const payload = {
+    title: titleInput.value.trim(),
+    year: yearInput.value.trim() || undefined
+  };
+
+  try {
+    const sent = await sendToTelegram(payload);
+    if (sent.ok) {
+      editStatus.innerHTML = '<span class="status-ok">✅ Sent!</span>';
+      retryBtn.textContent = '✅ Sent';
+    } else {
+      editStatus.innerHTML = '<span class="status-err">❌ ' + (sent.error || 'Error') + '</span>';
+      retryBtn.disabled = false;
+    }
+  } catch (e) {
+    editStatus.innerHTML = '<span class="status-err">❌ Network error</span>';
+    retryBtn.disabled = false;
+  }
+});
+
+// ---- Shared: send movie data to Telegram ----
+async function sendToTelegram(movie) {
+  const res = await fetch(BACKEND + '/api/share-trailer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(movie)
+  });
+  return await res.json();
+}
+
+function showScreen(name) {
+  screenMain.style.display = name === 'main' ? 'block' : 'none';
+  screenEdit.style.display = name === 'edit' ? 'block' : 'none';
+}
+
+showScreen('main');
