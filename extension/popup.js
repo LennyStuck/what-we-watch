@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://your-vercel-project.vercel.app/api/share-trailer';
+const BACKEND_URL = 'https://what-we-watch.vercel.app/api/share-trailer';
 
 document.getElementById('sendBtn').addEventListener('click', async () => {
   const btn = document.getElementById('sendBtn');
