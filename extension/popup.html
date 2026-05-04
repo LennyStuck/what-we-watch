@@ -12,24 +12,26 @@
       color: #e8e8e8;
     }
 
-    /* ---- SCREEN 1: normal ---- */
+    /* ── Screen 1 ── */
     #screen-main { padding: 16px; }
     #screen-main h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+
     #sendBtn {
       width: 100%; padding: 10px;
-      background: #2563eb; color: white;
+      background: #2563eb; color: #fff;
       border: none; border-radius: 8px;
       font-size: 14px; font-weight: 500; cursor: pointer;
     }
     #sendBtn:hover { background: #1d4ed8; }
     #sendBtn:disabled { background: #1e3a6e; color: #7ba3e0; cursor: default; }
     #main-status { font-size: 12px; color: #888; margin-top: 8px; min-height: 16px; }
-    .status-ok  { color: #4ade80; }
-    .status-err { color: #f87171; }
 
-    /* ---- SCREEN 2: fallback edit ---- */
+    /* ── Screen 2 ── */
     #screen-edit { display: none; padding: 14px; }
-    #screen-edit h3 { font-size: 13px; color: #f87171; margin-bottom: 10px; }
+    #edit-error {
+      font-size: 12px; color: #f87171;
+      margin-bottom: 10px; min-height: 16px;
+    }
     .field-label {
       font-size: 11px; color: #666;
       text-transform: uppercase; letter-spacing: 0.05em;
@@ -42,6 +44,7 @@
       border-radius: 6px; color: #fff; font-size: 13px; outline: none;
     }
     input[type=text]:focus { border-color: #2563eb; }
+    #yearInput { width: 90px; }
     .edit-actions { display: flex; gap: 8px; margin-top: 4px; }
     #backBtn {
       flex: 1; padding: 9px;
@@ -52,38 +55,40 @@
     #backBtn:hover { background: #252525; color: #fff; }
     #retryBtn {
       flex: 2; padding: 9px;
-      background: #2563eb; color: white;
+      background: #2563eb; color: #fff;
       border: none; border-radius: 8px;
       font-size: 13px; font-weight: 500; cursor: pointer;
     }
     #retryBtn:hover { background: #1d4ed8; }
     #retryBtn:disabled { background: #1e3a6e; color: #7ba3e0; cursor: default; }
     #edit-status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+    /* shared */
+    .ok  { color: #4ade80; }
+    .err { color: #f87171; }
   </style>
 </head>
 <body>
 
-  <!-- Screen 1: fast send -->
   <div id="screen-main">
     <h2>🍿 What We Watch</h2>
     <button id="sendBtn">Send to Telegram</button>
     <div id="main-status"></div>
   </div>
 
-  <!-- Screen 2: fallback edit -->
   <div id="screen-edit">
-    <h3>⚠️ Movie not found — edit and retry</h3>
+    <div id="edit-error"></div>
     <div class="field-row">
       <div class="field-label">Movie title</div>
-      <input type="text" id="titleInput" placeholder="e.g. The Beauty" />
+      <input type="text" id="titleInput" placeholder="e.g. Sinners" />
     </div>
     <div class="field-row">
       <div class="field-label">Year</div>
-      <input type="text" id="yearInput" placeholder="e.g. 2025" maxlength="4" style="width:90px" />
+      <input type="text" id="yearInput" placeholder="e.g. 2025" maxlength="4" />
     </div>
     <div class="edit-actions">
       <button id="backBtn">← Back</button>
-      <button id="retryBtn">Send anyway 📤</button>
+      <button id="retryBtn">Search & Send 🔍</button>
     </div>
     <div id="edit-status"></div>
   </div>
