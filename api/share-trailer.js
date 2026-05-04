@@ -12,6 +12,14 @@ function setCORS(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
+function genresToHashtags(genreStr) {
+  if (!genreStr) return '';
+  return genreStr
+    .split(',')
+    .map(g => '#' + g.trim().toLowerCase().replace(/\s+/g, '_'))
+    .join(' ');
+}
+
 async function findMovieOnTMDB(query) {
   const url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=ru-RU`;
   const res = await fetch(url);
@@ -38,13 +46,11 @@ export default async function handler(req, res) {
 
   let movieName = cleanTitle(title);
 
-  // 1. Try OMDb directly
   let omdbRes = await fetch(
     `https://www.omdbapi.com/?t=${encodeURIComponent(movieName)}&apikey=${OMDB_KEY}`
   );
   let movie = await omdbRes.json();
 
-  // 2. If not found, fallback to TMDB to get original title
   if (movie.Response === 'False' && TMDB_KEY) {
     const originalTitle = await findMovieOnTMDB(movieName);
     if (originalTitle) {
@@ -59,15 +65,17 @@ export default async function handler(req, res) {
     return res.status(404).json({ ok: false, error: 'Movie not found: ' + movieName });
   }
 
-  const imdb = movie.imdbRating !== 'N/A' ? `\u2b50 IMDb: ${movie.imdbRating}` : '';
+  const imdb = movie.imdbRating !== 'N/A' ? `⭐ IMDb: ${movie.imdbRating}` : '';
   const rt = movie.Ratings?.find(r => r.Source === 'Rotten Tomatoes');
-  const rtText = rt ? `\ud83c\udf45 RT: ${rt.Value}` : '';
+  const rtText = rt ? `🍅 RT: ${rt.Value}` : '';
+  const hashtags = genresToHashtags(movie.Genre);
 
-  const watchLinks = `\n\n\ud83c\udfac <a href="https://hdrezka.ag/search/?do=search&subaction=search&q=${encodeURIComponent(movie.Title)}">HDrezka</a>  |  <a href="https://kinogo.biz/search/${encodeURIComponent(movie.Title)}">Kinogo</a>`;
+  const q = encodeURIComponent(movie.Title);
+  const watchLinks = `\n\n🎬 <a href="https://hdrezka.me/search/?do=search&subaction=search&q=${q}">HDrezka</a>  |  <a href="https://kinogo-films.biz/search/${q}">Kinogo</a>`;
 
   const caption = [
     `<b>${movie.Title}</b> (${movie.Year})`,
-    movie.Genre,
+    hashtags,
     [imdb, rtText].filter(Boolean).join('  '),
     watchLinks
   ].filter(Boolean).join('\n');
