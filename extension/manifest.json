@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "What We Watch",
+  "version": "1.0.0",
+  "description": "Send movie trailer info to Telegram with one click",
+  "permissions": ["tabs", "activeTab"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "What We Watch"
+  }
+}
