@@ -13,11 +13,6 @@ function setCORS(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-function genresToHashtags(genres) {
-  if (!genres || !genres.length) return '';
-  return genres.map(g => '#' + g.name.toLowerCase().replace(/\s+/g, '_')).join(' ');
-}
-
 function genreStringToHashtags(genreStr) {
   if (!genreStr) return '';
   return genreStr.split(',').map(g => '#' + g.trim().toLowerCase().replace(/\s+/g, '_')).join(' ');
@@ -28,14 +23,12 @@ function extractYear(raw) {
   return match ? match[0] : null;
 }
 
-// Get full movie details from TMDB by id
 async function getTMDBDetails(id) {
-  const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${TMDB_KEY}&language=en-US&append_to_response=release_dates`;
+  const url = `https://api.themoviedb.org/3/movie/${id}?api_key=${TMDB_KEY}&language=en-US&append_to_response=external_ids`;
   const res = await fetch(url);
   return await res.json();
 }
 
-// Search TMDB, return first result full object
 async function searchTMDB(query, year) {
   let url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
   if (year) url += `&year=${year}`;
@@ -45,6 +38,12 @@ async function searchTMDB(query, year) {
     return await getTMDBDetails(data.results[0].id);
   }
   return null;
+}
+
+// Fetch OMDb by imdbID (most precise) or by title without year
+async function fetchOMDbByImdbId(imdbId) {
+  const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`);
+  return await res.json();
 }
 
 async function fetchFromOMDb(movieTitle, year) {
@@ -59,7 +58,6 @@ async function fetchFromOMDb(movieTitle, year) {
   return data;
 }
 
-// Build unified movie object from TMDB details
 function movieFromTMDB(t) {
   const year = t.release_date ? t.release_date.slice(0, 4) : 'N/A';
   const poster = t.poster_path ? TMDB_IMG + t.poster_path : null;
@@ -70,9 +68,9 @@ function movieFromTMDB(t) {
     Year: year,
     Genre: genres,
     Poster: poster,
-    imdbRating: t.vote_average ? t.vote_average.toFixed(1) : 'N/A',
+    imdbRating: 'N/A',
     Ratings: [],
-    _source: 'tmdb'
+    _imdbId: t.external_ids?.imdb_id || null
   };
 }
 
@@ -89,28 +87,40 @@ export default async function handler(req, res) {
   let movie = { Response: 'False' };
 
   if (isCyrillic(title)) {
-    // Russian: use TMDB as primary (with year for precision)
+    // Russian: TMDB primary (precise with year), then enrich via imdbID
     const ruClean = cleanRussianTitle(title);
     const tmdbMovie = await searchTMDB(ruClean, year);
     if (tmdbMovie) {
       movie = movieFromTMDB(tmdbMovie);
-      // Try to enrich with OMDb ratings
-      const omdb = await fetchFromOMDb(movie.Title, year);
-      if (omdb.Response === 'True') {
-        movie.imdbRating = omdb.imdbRating;
-        movie.Ratings = omdb.Ratings || [];
-        if (omdb.Poster && omdb.Poster !== 'N/A') movie.Poster = omdb.Poster;
+      // Enrich with OMDb using imdbID for exact match
+      if (movie._imdbId) {
+        const omdb = await fetchOMDbByImdbId(movie._imdbId);
+        if (omdb.Response === 'True') {
+          movie.imdbRating = omdb.imdbRating;
+          movie.Ratings = omdb.Ratings || [];
+          if (omdb.Poster && omdb.Poster !== 'N/A') movie.Poster = omdb.Poster;
+        }
       }
     }
   } else {
-    // English: try OMDb first, fallback to TMDB
+    // English: OMDb first, fallback to TMDB
     const enClean = cleanTitle(title);
     const omdb = await fetchFromOMDb(enClean, year);
     if (omdb.Response === 'True') {
       movie = omdb;
     } else {
       const tmdbMovie = await searchTMDB(enClean, year);
-      if (tmdbMovie) movie = movieFromTMDB(tmdbMovie);
+      if (tmdbMovie) {
+        movie = movieFromTMDB(tmdbMovie);
+        if (movie._imdbId) {
+          const omdb2 = await fetchOMDbByImdbId(movie._imdbId);
+          if (omdb2.Response === 'True') {
+            movie.imdbRating = omdb2.imdbRating;
+            movie.Ratings = omdb2.Ratings || [];
+            if (omdb2.Poster && omdb2.Poster !== 'N/A') movie.Poster = omdb2.Poster;
+          }
+        }
+      }
     }
   }
 
